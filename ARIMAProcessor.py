@@ -63,6 +63,7 @@ class ARIMAProcessor:
                 dummy_model = auto_arima(dummy_df, seasonal = False, stepwise = True, suppress_warnings = True)
                 if dummy_model.aic() < overall_AIC:
                     self.training_df = dummy_df
+                    overall_AIC = dummy_model.aic()
                 
             
         if end_date != "end":
