@@ -11,6 +11,8 @@ from plotly.offline import download_plotlyjs, init_notebook_mode, plot, iplot
 
 cf.go_offline()
 
+
+
 """
 Various libraries needed.
 """
@@ -20,14 +22,18 @@ class ARIMAProcessor:
         self.csv = str(csv)
         self.entire_df = pd.read_csv(self.csv)
         self.filtered_df = None
+        
         self.training_df = None
+        self.seasonal = False
+        self.m = 1
+        
         self.model = None
         self.forecast = None
         self.forecast_lower = pd.Series()
         self.forecast_upper = pd.Series()
         
     """
-    csv is read and saved as instance variable along with entire dataframe
+    csv is read and saved as instance variable
     """
     
     def filterDf(self, value_column, date_column = "date"):
@@ -54,34 +60,66 @@ class ARIMAProcessor:
     """
     
     def windowSize(self, end_date = "end"):
-        window_lengths = [6, 8, 10, 12, 14, 16, 18, 20]
+        non_seasonal_lengths = [8, 10, 12, 14, 16, 18, 20, 22, 24]
+        seasonal_lengths = [12, 14, 16, 18, 20, 22, 24]
+        
+        seasonalities = [True, False]
+        
         overall_AIC = 1000000000000000 # Dummy value, will definitely get an AIC lower than this
         
+        
         if end_date == "end":
-            for length in window_lengths:
+            #First check the non-seasonal pipeline
+            for length in non_seasonal_lengths:
                 dummy_df = self.filtered_df.iloc[(length * -1):] # Dummy df that contains the last x rows
                 dummy_model = auto_arima(dummy_df, seasonal = False, stepwise = True, suppress_warnings = True)
                 if dummy_model.aic() < overall_AIC:
                     self.training_df = dummy_df
                     overall_AIC = dummy_model.aic()
-                
-            
+                    
+            #Next check the seasonal pipeline
+            for length in seasonal_lengths:
+                dummy_df = self.filtered_df.iloc[(length * -1):] # Dummy df that contains the last x rows
+                dummy_model = auto_arima(dummy_df, seasonal = True, stepwise = True, suppress_warnings = True)
+                if dummy_model.aic() < overall_AIC:
+                    self.training_df = dummy_df
+                    self.seasonal = True
+                    self.m = 12
+                    overall_AIC = dummy_model.aic()
+                        
+        
         if end_date != "end":
             DT_end_date = pd.to_datetime(end_date)
             numerical_end_date = self.filtered_df.index.get_loc(DT_end_date)
-            for length in window_lengths:
+            #First check the non-seasonal pipeline
+            for length in non_seasonal_lengths:
                 dummy_df = self.filtered_df[(numerical_end_date - (length - 1)):(numerical_end_date + 1)]
                 dummy_model = auto_arima(dummy_df, seasonal = False, stepwise = True, suppress_warnings = True)
                 if dummy_model.aic() < overall_AIC:
                     self.training_df = dummy_df
+                    overall_AIC = dummy_model.aic()
+                
+                
+            #Next check the seasonal pipeline
+            for length in seasonal_lengths:
+                
+                dummy_df = self.filtered_df[(numerical_end_date - (length - 1)):(numerical_end_date + 1)]
+                dummy_model = auto_arima(dummy_df, seasonal = True, m=12, stepwise = True, suppress_warnings = True)
+                if dummy_model.aic() < overall_AIC:
+                    self.training_df = dummy_df
+                    self.seasonal = True
+                    self.m = 12
+                    overall_AIC = dummy_model.aic()
+                    
+
     
     """
-    going through various window lengths to find the best training dataframe. AIC comparison is the method to find best
+    going through various window lengths, seasonalities, and m values to find the best training dataframe. AIC comparison is the method to find best
     training dataset. end_date refers to the last training date used
     """
                 
     def generateModel(self):
-        self.model = auto_arima(self.training_df, seasonal = False, stepwise = True, suppress_warnings = True)
+        self.model = auto_arima(self.training_df, seasonal = self.seasonal, m = self.m if self.seasonal else 1, stepwise = True, suppress_warnings = True)
     
     """
     auto arima method used to generate arima model based upon the selected best training dataframe
